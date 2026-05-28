@@ -111,33 +111,21 @@ fun MainScreen(
         Slider(
             value = uiState.angle,
             onValueChange = onAngleChange,
+            onValueChangeFinished = onSend,
             valueRange = 0f..180f,
             steps = 179,
             enabled = uiState.connectionStatus == ConnectionStatus.CONNECTED,
         )
-        Button(
-            onClick = onSend,
-            enabled = uiState.connectionStatus == ConnectionStatus.CONNECTED,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Send S1:${uiState.angle.toInt()}")
-        }
 
         Text("Servo 2: ${uiState.angle2.toInt()}°", style = MaterialTheme.typography.titleSmall)
         Slider(
             value = uiState.angle2,
             onValueChange = onAngleChange2,
+            onValueChangeFinished = onSend2,
             valueRange = 0f..180f,
             steps = 179,
             enabled = uiState.connectionStatus == ConnectionStatus.CONNECTED,
         )
-        Button(
-            onClick = onSend2,
-            enabled = uiState.connectionStatus == ConnectionStatus.CONNECTED,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Send S2:${uiState.angle2.toInt()}")
-        }
 
         Text("Received data", style = MaterialTheme.typography.titleSmall)
         Text(
