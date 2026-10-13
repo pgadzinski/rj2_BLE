@@ -19,7 +19,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -107,25 +107,25 @@ fun MainScreen(
             }
         }
 
-        Text("Servo 1: ${uiState.angle.toInt()}°", style = MaterialTheme.typography.titleSmall)
-        Slider(
-            value = uiState.angle,
-            onValueChange = onAngleChange,
-            onValueChangeFinished = onSend,
-            valueRange = 0f..180f,
-            steps = 179,
-            enabled = uiState.connectionStatus == ConnectionStatus.CONNECTED,
-        )
-
-        Text("Servo 2: ${uiState.angle2.toInt()}°", style = MaterialTheme.typography.titleSmall)
-        Slider(
-            value = uiState.angle2,
-            onValueChange = onAngleChange2,
-            onValueChangeFinished = onSend2,
-            valueRange = 0f..180f,
-            steps = 179,
-            enabled = uiState.connectionStatus == ConnectionStatus.CONNECTED,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            // Shown as arm positions; Servo 2 is actually sent the reversed angle.
+            val arm2 = servo2Reversed(uiState.angle2)
+            Text("S1: ${uiState.angle.toInt()}°", style = MaterialTheme.typography.titleSmall)
+            Text("S2: ${arm2.toInt()}°", style = MaterialTheme.typography.titleSmall)
+            Text("Diff: ${(uiState.angle - arm2).toInt()}°", style = MaterialTheme.typography.titleSmall)
+        }
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            JoystickControl(
+                enabled = uiState.connectionStatus == ConnectionStatus.CONNECTED,
+                resetKey = uiState.joystickResetKey,
+                onAngle1Change = onAngleChange,
+                onAngle2Change = onAngleChange2,
+                onSend = { onSend(); onSend2() },
+            )
+        }
 
         Text("Received data", style = MaterialTheme.typography.titleSmall)
         Text(

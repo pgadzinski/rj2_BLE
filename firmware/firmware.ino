@@ -33,11 +33,13 @@ void logLine(String msg) {
 void setup() {
   Serial.begin(9600);
 
+  // Set the start angle before attach() so the very first pulse is 90°,
+  // matching the app's centered joystick (no jump at power-up).
+  servo1.write(90);
+  servo2.write(90);
+
   servo1.attach(SERVO1_PIN);
   servo2.attach(SERVO2_PIN);
-
-  servo1.write(0);
-  servo2.write(0);
 
   logLine("Romeo BLE Ready");
 }

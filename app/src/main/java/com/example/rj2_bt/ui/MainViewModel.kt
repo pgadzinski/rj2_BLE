@@ -30,6 +30,7 @@ data class MainUiState(
     val angle2: Float = 90f,
     val receivedData: String = "",
     val permissionsGranted: Boolean = false,
+    val joystickResetKey: Int = 0,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -45,6 +46,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _permissionsGranted = MutableStateFlow(false)
     val permissionsGranted: StateFlow<Boolean> = _permissionsGranted.asStateFlow()
+
+    // Bumped to recenter the joystick thumb when the servos are reset to 90°.
+    private val _joystickResetKey = MutableStateFlow(0)
 
     private data class BleFlows(
         val status: ConnectionStatus,
@@ -66,8 +70,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         },
         combine(_angle, _angle2) { a, a2 -> a to a2 },
         _permissionsGranted,
-    ) { ble, (angle, angle2), perms ->
+        _joystickResetKey,
+    ) { ble, (angle, angle2), perms, resetKey ->
         MainUiState(
+            joystickResetKey = resetKey,
             connectionStatus = ble.status,
             isScanning = ble.scanning,
             devices = ble.devices,
@@ -116,6 +122,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             application.registerReceiver(bluetoothReceiver, filter)
         }
+        viewModelScope.launch {
+            repository.writeReady.collect { centerServos() }
+        }
+    }
+
+    /** Puts both servos at 90° and recenters the joystick, so Juno holds still until it's moved. */
+    private fun centerServos() {
+        _angle.value = 90f
+        _angle2.value = 90f
+        _joystickResetKey.value++
+        sendAngle()
+        sendAngle2()
     }
 
     fun onPermissionsResult(granted: Boolean) {

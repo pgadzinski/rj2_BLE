@@ -1,5 +1,6 @@
 package com.example.rj2_bt.util
 
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,7 @@ class AppLog(private val maxChars: Int = 14_000) {
 
     @Synchronized
     fun append(line: String) {
+        Log.d("RJ2", line)
         val stamped = "${timeFmt.format(Date())}  $line\n"
         var combined = _text.value + stamped
         if (combined.length > maxChars) {

@@ -23,10 +23,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ConcurrentHashMap
 
@@ -51,6 +55,17 @@ class BleRepository(
     private var writeChar: BluetoothGattCharacteristic? = null
     private var notifyChar: BluetoothGattCharacteristic? = null
     private var pendingCccd: CompletableDeferred<Boolean>? = null
+
+    private val writeSignal = Channel<Unit>(Channel.CONFLATED)
+    private var servo1Pending: Int? = null
+    private var servo2Pending: Int? = null
+    private var pendingCharWrite: CompletableDeferred<Unit>? = null
+    private val writeProcessor = scope.launch { processWriteQueue() }
+
+    // Fires once per connection, after characteristics are picked and notify
+    // setup has finished, i.e. when servo commands can actually be written.
+    private val _writeReady = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val writeReady: SharedFlow<Unit> = _writeReady.asSharedFlow()
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.ADAPTER_OFF)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -271,6 +286,7 @@ class BleRepository(
     fun cleanup() {
         stopScan()
         disconnect()
+        writeSignal.close()
     }
 
     fun sendAngle(angle: Int) = sendServo(1, angle)
@@ -279,25 +295,61 @@ class BleRepository(
 
     private fun sendServo(servo: Int, angle: Int) {
         val clamped = angle.coerceIn(0, 180)
-        val payload = "S$servo:$clamped\n"
-        val characteristic = writeChar
-        val g = gatt
-        if (characteristic == null || g == null) {
+        if (writeChar == null || gatt == null) {
             log("Send failed: not connected / no write characteristic")
             return
         }
+        when (servo) {
+            1 -> servo1Pending = clamped
+            2 -> servo2Pending = clamped
+        }
+        writeSignal.trySend(Unit)
+    }
+
+    private suspend fun processWriteQueue() {
+        // Each signal is conflated, so a burst of drag updates collapses to one
+        // pass here — we always write the latest pending angle per servo and
+        // drop any stale ones queued up behind it.
+        for (unit in writeSignal) {
+            servo1Pending?.let { angle ->
+                servo1Pending = null
+                writeServo(1, angle)
+            }
+            servo2Pending?.let { angle ->
+                servo2Pending = null
+                writeServo(2, angle)
+            }
+        }
+    }
+
+    private suspend fun writeServo(servo: Int, angle: Int) {
+        val payload = "S$servo:$angle\n"
+        val characteristic = writeChar ?: return
+        val g = gatt ?: return
         val bytes = payload.toByteArray(Charsets.UTF_8)
         characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val deferred = CompletableDeferred<Unit>()
+        pendingCharWrite = deferred
+        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val code = g.writeCharacteristic(characteristic, bytes, characteristic.writeType)
-            log("Write S$servo:$clamped → status=$code")
+            log("Write ${payload.trim()} → status=$code")
+            code == BluetoothGatt.GATT_SUCCESS
         } else {
             @Suppress("DEPRECATION")
             characteristic.value = bytes
             @Suppress("DEPRECATION")
             val ok = g.writeCharacteristic(characteristic)
-            log("Write S$servo:$clamped → ok=$ok")
+            log("Write ${payload.trim()} → ok=$ok")
+            ok
         }
+        if (started) {
+            try {
+                withTimeout(500L) { deferred.await() }
+            } catch (_: Exception) {
+                log("Write timeout: ${payload.trim()}")
+            }
+        }
+        pendingCharWrite = null
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -359,6 +411,8 @@ class BleRepository(
             status: Int,
         ) {
             log("onCharacteristicWrite status=$status")
+            pendingCharWrite?.complete(Unit)
+            pendingCharWrite = null
         }
 
         override fun onDescriptorWrite(
@@ -439,6 +493,7 @@ class BleRepository(
         val ch = notifyChar
         if (ch == null) {
             log("Notify enable skipped: no notify characteristic")
+            signalWriteReady()
             return
         }
         scope.launch {
@@ -450,10 +505,18 @@ class BleRepository(
                 enableNotifyWithRetry(gatt, attempt + 1)
             } else if (ok) {
                 log("Notifications enabled")
+                signalWriteReady()
             } else {
                 log("Notify enable gave up after ${BleConstants.NOTIFY_RETRY_MAX} retries")
+                signalWriteReady()
             }
         }
+    }
+
+    private fun signalWriteReady() {
+        if (writeChar == null) return
+        log("Ready for servo commands")
+        _writeReady.tryEmit(Unit)
     }
 
     private suspend fun enableNotifications(
