@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
                             onSend = { viewModel.sendAngle() },
                             onAngleChange2 = { viewModel.setAngle2(it) },
                             onSend2 = { viewModel.sendAngle2() },
+                            onAdjustServo2Trim = { viewModel.adjustServo2Trim(it) },
                             onOpenDebug = { navController.navigate("debug") },
                         )
                     }

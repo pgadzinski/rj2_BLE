@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rj2_bt.ble.BleDeviceItem
@@ -48,6 +50,7 @@ fun MainScreen(
     onSend: () -> Unit,
     onAngleChange2: (Float) -> Unit,
     onSend2: () -> Unit,
+    onAdjustServo2Trim: (Int) -> Unit,
     onOpenDebug: () -> Unit,
 ) {
     val scroll = rememberScrollState()
@@ -125,6 +128,31 @@ fun MainScreen(
                 onAngle2Change = onAngleChange2,
                 onSend = { onSend(); onSend2() },
             )
+        }
+
+        // Tune with the stick centered until the arms are parallel.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val trim = uiState.servo2Trim
+            Text("Servo 2 trim", style = MaterialTheme.typography.titleSmall)
+            Spacer(modifier = Modifier.width(12.dp))
+            OutlinedButton(
+                onClick = { onAdjustServo2Trim(-1) },
+                enabled = trim > -SERVO2_TRIM_LIMIT,
+            ) { Text("−") }
+            Text(
+                text = if (trim > 0) "+$trim°" else "$trim°",
+                modifier = Modifier.width(56.dp),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleSmall,
+            )
+            OutlinedButton(
+                onClick = { onAdjustServo2Trim(1) },
+                enabled = trim < SERVO2_TRIM_LIMIT,
+            ) { Text("+") }
         }
 
         Text("Received data", style = MaterialTheme.typography.titleSmall)

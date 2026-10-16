@@ -311,42 +311,53 @@ class BleRepository(
         // pass here — we always write the latest pending angle per servo and
         // drop any stale ones queued up behind it.
         for (unit in writeSignal) {
-            servo1Pending?.let { angle ->
-                servo1Pending = null
-                writeServo(1, angle)
+            // Both servos go in one packet ("S1:170\nS2:10\n" is at most 14
+            // bytes, under the 20-byte BLE minimum), so they update together.
+            val payload = buildString {
+                servo1Pending?.let { append("S1:$it\n") }
+                servo2Pending?.let { append("S2:$it\n") }
             }
-            servo2Pending?.let { angle ->
-                servo2Pending = null
-                writeServo(2, angle)
-            }
+            servo1Pending = null
+            servo2Pending = null
+            if (payload.isNotEmpty()) writePayload(payload)
         }
     }
 
-    private suspend fun writeServo(servo: Int, angle: Int) {
-        val payload = "S$servo:$angle\n"
+    private suspend fun writePayload(payload: String) {
         val characteristic = writeChar ?: return
         val g = gatt ?: return
         val bytes = payload.toByteArray(Charsets.UTF_8)
-        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        // Without-response writes skip the board's per-write acknowledgement,
+        // roughly doubling the update rate. Android still calls
+        // onCharacteristicWrite once the packet is queued, so the await below
+        // keeps one write in flight at a time.
+        val noResponse = characteristic.properties and
+            BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
+        characteristic.writeType = if (noResponse) {
+            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        } else {
+            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        }
+        val logText = payload.trim().replace('\n', ' ')
         val deferred = CompletableDeferred<Unit>()
         pendingCharWrite = deferred
         val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val code = g.writeCharacteristic(characteristic, bytes, characteristic.writeType)
-            log("Write ${payload.trim()} → status=$code")
+            log("Write $logText (${if (noResponse) "no-rsp" else "ack"}) → status=$code")
             code == BluetoothGatt.GATT_SUCCESS
         } else {
             @Suppress("DEPRECATION")
             characteristic.value = bytes
             @Suppress("DEPRECATION")
             val ok = g.writeCharacteristic(characteristic)
-            log("Write ${payload.trim()} → ok=$ok")
+            log("Write $logText → ok=$ok")
             ok
         }
         if (started) {
             try {
                 withTimeout(500L) { deferred.await() }
             } catch (_: Exception) {
-                log("Write timeout: ${payload.trim()}")
+                log("Write timeout: $logText")
             }
         }
         pendingCharWrite = null

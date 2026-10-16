@@ -31,7 +31,12 @@ data class MainUiState(
     val receivedData: String = "",
     val permissionsGranted: Boolean = false,
     val joystickResetKey: Int = 0,
+    val servo2Trim: Int = 0,
 )
+
+// Limit on the Servo 2 trim. A few degrees lines the arms up; a large value
+// would mean a horn is off by a spline tooth and should be remounted instead.
+const val SERVO2_TRIM_LIMIT = 20
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -49,6 +54,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Bumped to recenter the joystick thumb when the servos are reset to 90°.
     private val _joystickResetKey = MutableStateFlow(0)
+
+    // Degrees added to every Servo 2 command so the arms sit parallel when
+    // they're meant to (servo horns rarely line up exactly). Saved on the phone.
+    private val prefs = application.getSharedPreferences("rj2", Context.MODE_PRIVATE)
+    private val _servo2Trim = MutableStateFlow(prefs.getInt(KEY_SERVO2_TRIM, 0))
 
     private data class BleFlows(
         val status: ConnectionStatus,
@@ -71,9 +81,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         combine(_angle, _angle2) { a, a2 -> a to a2 },
         _permissionsGranted,
         _joystickResetKey,
-    ) { ble, (angle, angle2), perms, resetKey ->
+        _servo2Trim,
+    ) { ble, (angle, angle2), perms, resetKey, trim ->
         MainUiState(
             joystickResetKey = resetKey,
+            servo2Trim = trim,
             connectionStatus = ble.status,
             isScanning = ble.scanning,
             devices = ble.devices,
@@ -179,7 +191,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _angle2.value = value.coerceIn(0f, 180f)
     }
 
-    fun sendAngle2() = repository.sendAngle2(_angle2.value.toInt())
+    fun sendAngle2() = repository.sendAngle2(_angle2.value.toInt() + _servo2Trim.value)
+
+    fun adjustServo2Trim(delta: Int) {
+        val trim = (_servo2Trim.value + delta).coerceIn(-SERVO2_TRIM_LIMIT, SERVO2_TRIM_LIMIT)
+        _servo2Trim.value = trim
+        prefs.edit().putInt(KEY_SERVO2_TRIM, trim).apply()
+        // Resend so the arm moves right away while it's being tuned.
+        if (repository.connectionStatus.value == ConnectionStatus.CONNECTED) sendAngle2()
+    }
 
     fun clearDebugLog() = appLog.clear()
 
@@ -192,5 +212,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (_: Exception) {
         }
         repository.cleanup()
+    }
+
+    private companion object {
+        const val KEY_SERVO2_TRIM = "servo2_trim"
     }
 }

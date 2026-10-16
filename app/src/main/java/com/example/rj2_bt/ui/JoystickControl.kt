@@ -24,8 +24,9 @@ import kotlinx.coroutines.launch
 
 private const val SEND_INTERVAL_MS = 50L
 
-// Max angle gap between the two servos at full left/right (split ±15° per servo).
-private const val MAX_SERVO_DIFF = 30f
+// Max angle gap between the two servos at full left/right (split ±10° per servo).
+// Was 30°; the arms sometimes bound at the wider gap.
+private const val MAX_SERVO_DIFF = 20f
 
 // Usable servo range. Driving to a full 0°/180° puts the servos against their
 // end stops, where they hunt back and forth even with no new commands.
